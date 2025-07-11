@@ -1,0 +1,510 @@
+%spark_yash-sangwan
+create table scrap.oos_all_events_v3 as
+WITH  product_universe AS (
+    SELECT DISTINCT
+        o.supplier_id,
+        o.product_id,
+        o.event_id,
+        e.event_name,
+        e.event_start_date,
+        e.event_start_time,
+        e.event_end_date,
+        e.event_end_time
+    FROM gold.offers_master_updated o
+    JOIN ((
+    SELECT 
+        event_name,
+        event_id,
+        event_start_date,
+        event_start_time,
+        event_end_date,
+        event_end_time
+    FROM mercury.events_master_updated
+)
+
+UNION
+
+(
+    SELECT 
+        event_name,
+        event_id,
+        event_start_date,
+        event_start_time,
+        event_end_date,
+        event_end_time
+    FROM mercury.events_master
+)
+
+UNION
+
+(
+    SELECT
+        'fsms' AS event_name,
+        265 as event_id,
+        DATE('2025-04-06') AS event_start_date,
+        TIMESTAMP('2025-04-06 00:00:00') AS event_start_time,
+        DATE('2025-04-06') AS event_end_date,
+        TIMESTAMP('2025-04-06 23:59:00') AS event_end_time
+)
+
+UNION
+
+(
+    SELECT
+        'Maha Indian Saving Sale' AS event_name,
+        258 as event_id,
+        DATE('2025-03-01') AS event_start_date,
+        TIMESTAMP('2025-03-01 00:00:00') AS event_start_time,
+        DATE('2025-03-02') AS event_end_date,
+        TIMESTAMP('2025-03-02 23:59:00') AS event_end_time
+)
+) e
+        ON CAST(o.event_id AS STRING) = CAST(e.event_id AS STRING)
+    WHERE 
+        (
+            o.status = 'ACTIVE' 
+            OR 
+            (
+                o.status != 'ACTIVE' AND
+                from_utc_timestamp(from_unixtime(o.updated_at / 1000), 'Asia/Kolkata')
+                    BETWEEN cast(from_utc_timestamp(e.event_start_time, 'Asia/Kolkata') AS timestamp)
+                    AND cast(from_utc_timestamp(e.event_end_time, 'Asia/Kolkata') AS timestamp)
+            )
+        )
+       and o.event_id in (271,281,258,265,249,239) and e.event_id in (271,281,258,265,249,239)
+),
+oos_events AS (
+    SELECT
+        i.supplier_id,
+        i.product_id,
+        pu.event_id,
+        i.inventory_updated_timestamp AS oos_timestamp,
+        pu.event_start_time,
+        pu.event_end_time,
+        supplier_oos,
+        LAG(i.live_inventory) OVER (
+            PARTITION BY i.supplier_id, i.product_id,pu.event_id
+            ORDER BY i.inventory_updated_timestamp
+        ) AS inventory_before_oos
+   
+    FROM silver.inventory__inventory_product_inventory_log_v2 i
+    JOIN product_universe pu
+      ON i.supplier_id = pu.supplier_id
+      AND i.product_id = pu.product_id
+    WHERE 
+    from_utc_timestamp(i.inventory_updated_timestamp, 'Asia/Kolkata')
+    BETWEEN cast(from_utc_timestamp(pu.event_start_time - INTERVAL 30 DAYS, 'Asia/Kolkata') AS timestamp)
+    AND cast(from_utc_timestamp(pu.event_end_time, 'Asia/Kolkata') AS timestamp)
+    AND i.inventory_updated_timestamp >= pu.event_start_time - INTERVAL 60 DAYS
+    and year='2025'
+),
+oos_info_0 AS (
+    SELECT 
+        oe.supplier_id, 
+        oe.product_id, 
+        oe.event_id, 
+        oe.oos_timestamp,
+        oe.inventory_before_oos
+    FROM (
+        SELECT *, 
+            ROW_NUMBER() OVER (PARTITION BY supplier_id, product_id, event_id ORDER BY oos_timestamp ASC) AS rn
+        FROM oos_events
+        WHERE supplier_oos = 1 AND 
+              from_utc_timestamp(oos_timestamp, 'Asia/Kolkata') BETWEEN cast(from_utc_timestamp(event_start_time, 'Asia/Kolkata') AS timestamp)
+              AND cast(from_utc_timestamp(event_end_time, 'Asia/Kolkata') AS timestamp)
+    ) oe
+
+    WHERE oe.rn = 1
+),
+oos_info_1 AS (
+    SELECT 
+        oe.supplier_id, 
+        oe.product_id, 
+        oe.event_id, 
+        oe.oos_timestamp,
+        oe.inventory_before_oos
+    FROM (
+        SELECT *, 
+            ROW_NUMBER() OVER (PARTITION BY supplier_id, product_id, event_id ORDER BY oos_timestamp ASC) AS rn
+        FROM oos_events
+        WHERE supplier_oos = 1 AND 
+              from_utc_timestamp(oos_timestamp, 'Asia/Kolkata') BETWEEN cast(from_utc_timestamp(event_start_time- INTERVAL 1 DAYS, 'Asia/Kolkata') AS timestamp)
+              AND cast(from_utc_timestamp(event_end_time- INTERVAL 1 DAYS, 'Asia/Kolkata') AS timestamp)
+    ) oe
+
+    WHERE oe.rn = 1
+),
+oos_info_2 AS (
+    SELECT 
+        oe.supplier_id, 
+        oe.product_id, 
+        oe.event_id, 
+        oe.oos_timestamp,
+        oe.inventory_before_oos
+    FROM (
+        SELECT *, 
+            ROW_NUMBER() OVER (PARTITION BY supplier_id, product_id, event_id ORDER BY oos_timestamp ASC) AS rn
+        FROM oos_events
+        WHERE supplier_oos = 1 AND 
+              from_utc_timestamp(oos_timestamp, 'Asia/Kolkata') BETWEEN cast(from_utc_timestamp(event_start_time- INTERVAL 2 DAYS, 'Asia/Kolkata') AS timestamp)
+              AND cast(from_utc_timestamp(event_end_time- INTERVAL 2 DAYS, 'Asia/Kolkata') AS timestamp)
+    ) oe
+
+    WHERE oe.rn = 1
+),
+oos_info_3 AS (
+    SELECT 
+        oe.supplier_id, 
+        oe.product_id, 
+        oe.event_id, 
+        oe.oos_timestamp,
+        oe.inventory_before_oos
+    FROM (
+        SELECT *, 
+            ROW_NUMBER() OVER (PARTITION BY supplier_id, product_id, event_id ORDER BY oos_timestamp ASC) AS rn
+        FROM oos_events
+        WHERE supplier_oos = 1 AND 
+              from_utc_timestamp(oos_timestamp, 'Asia/Kolkata') BETWEEN cast(from_utc_timestamp(event_start_time- INTERVAL 3 DAYS, 'Asia/Kolkata') AS timestamp)
+              AND cast(from_utc_timestamp(event_end_time- INTERVAL 3 DAYS, 'Asia/Kolkata') AS timestamp)
+    ) oe
+
+    WHERE oe.rn = 1
+),
+oos_info_4 AS (
+    SELECT 
+        oe.supplier_id, 
+        oe.product_id, 
+        oe.event_id, 
+        oe.oos_timestamp,
+        oe.inventory_before_oos
+    FROM (
+        SELECT *, 
+            ROW_NUMBER() OVER (PARTITION BY supplier_id, product_id, event_id ORDER BY oos_timestamp ASC) AS rn
+        FROM oos_events
+        WHERE supplier_oos = 1 AND 
+              from_utc_timestamp(oos_timestamp, 'Asia/Kolkata') BETWEEN cast(from_utc_timestamp(event_start_time- INTERVAL 4 DAYS, 'Asia/Kolkata') AS timestamp)
+              AND cast(from_utc_timestamp(event_end_time- INTERVAL 4 DAYS, 'Asia/Kolkata') AS timestamp)
+    ) oe
+
+    WHERE oe.rn = 1
+),
+oos_info_5 AS (
+    SELECT 
+        oe.supplier_id, 
+        oe.product_id, 
+        oe.event_id, 
+        oe.oos_timestamp,
+        oe.inventory_before_oos
+    FROM (
+        SELECT *, 
+            ROW_NUMBER() OVER (PARTITION BY supplier_id, product_id, event_id ORDER BY oos_timestamp ASC) AS rn
+        FROM oos_events
+        WHERE supplier_oos = 1 AND 
+              from_utc_timestamp(oos_timestamp, 'Asia/Kolkata') BETWEEN cast(from_utc_timestamp(event_start_time- INTERVAL 5 DAYS, 'Asia/Kolkata') AS timestamp)
+              AND cast(from_utc_timestamp(event_end_time- INTERVAL 5 DAYS, 'Asia/Kolkata') AS timestamp)
+    ) oe
+
+    WHERE oe.rn = 1
+),
+oos_info_6 AS (
+    SELECT 
+        oe.supplier_id, 
+        oe.product_id, 
+        oe.event_id, 
+        oe.oos_timestamp,
+        oe.inventory_before_oos
+    FROM (
+        SELECT *, 
+            ROW_NUMBER() OVER (PARTITION BY supplier_id, product_id, event_id ORDER BY oos_timestamp ASC) AS rn
+        FROM oos_events
+        WHERE supplier_oos = 1 AND 
+              from_utc_timestamp(oos_timestamp, 'Asia/Kolkata') BETWEEN cast(from_utc_timestamp(event_start_time- INTERVAL 6 DAYS, 'Asia/Kolkata') AS timestamp)
+              AND cast(from_utc_timestamp(event_end_time- INTERVAL 6 DAYS, 'Asia/Kolkata') AS timestamp)
+    ) oe
+
+    WHERE oe.rn = 1
+),
+oos_info_7 AS (
+    SELECT 
+        oe.supplier_id, 
+        oe.product_id, 
+        oe.event_id, 
+        oe.oos_timestamp,
+        oe.inventory_before_oos
+    FROM (
+        SELECT *, 
+            ROW_NUMBER() OVER (PARTITION BY supplier_id, product_id, event_id ORDER BY oos_timestamp ASC) AS rn
+        FROM oos_events
+        WHERE supplier_oos = 1 AND 
+              from_utc_timestamp(oos_timestamp, 'Asia/Kolkata') BETWEEN cast(from_utc_timestamp(event_start_time- INTERVAL 7 DAYS, 'Asia/Kolkata') AS timestamp)
+              AND cast(from_utc_timestamp(event_end_time- INTERVAL 7 DAYS, 'Asia/Kolkata') AS timestamp)
+    ) oe
+
+    WHERE oe.rn = 1
+),
+orders_30d_before_event AS (
+    SELECT
+        pu.supplier_id,
+        pu.product_id,
+        pu.event_id,
+        COUNT(DISTINCT case when  o.order_date BETWEEN pu.event_start_date AND pu.event_end_date then o.sub_order_num end) AS orders_received_0,
+        COUNT(DISTINCT case when  o.order_date BETWEEN pu.event_start_date AND pu.event_end_date then o.sub_order_num end) AS orders_received_1,
+        COUNT(DISTINCT case when  o.order_date BETWEEN pu.event_start_date AND pu.event_end_date then o.sub_order_num end) AS orders_received_2,
+        COUNT(DISTINCT case when  o.order_date BETWEEN pu.event_start_date AND pu.event_end_date then o.sub_order_num end) AS orders_received_3,
+        COUNT(DISTINCT case when  o.order_date BETWEEN pu.event_start_date AND pu.event_end_date then o.sub_order_num end) AS orders_received_4,
+        COUNT(DISTINCT case when  o.order_date BETWEEN pu.event_start_date AND pu.event_end_date then o.sub_order_num end) AS orders_received_5,
+        COUNT(DISTINCT case when  o.order_date BETWEEN pu.event_start_date AND pu.event_end_date then o.sub_order_num end) AS orders_received_6,
+        COUNT(DISTINCT case when  o.order_date BETWEEN pu.event_start_date AND pu.event_end_date then o.sub_order_num end) AS orders_received_7,
+        COUNT(DISTINCT case when o.order_date BETWEEN DATE_SUB(pu.event_start_date, 30) AND DATE_SUB(pu.event_start_date, 1) then o.sub_order_num end) AS orders_last_30d
+    FROM product_universe pu
+    LEFT JOIN platinum.order_master_bi o
+        ON pu.supplier_id = o.supplier_id
+        AND pu.product_id = o.product_id
+        AND o.order_date BETWEEN DATE_SUB(pu.event_start_date, 30) AND  pu.event_start_date
+    WHERE o.order_date >= DATE('2024-11-20')
+    GROUP BY pu.supplier_id, pu.product_id, pu.event_id
+),
+detailed_metrics AS (
+  SELECT
+  distinct 
+    pu.supplier_id,
+    pu.product_id,
+    pu.event_id,
+    pu.event_name,
+    pu.event_start_time,
+    pu.event_end_time,
+
+    -- OOS timestamps and inventory before oos for 0-7
+    oi0.oos_timestamp AS oos_timestamp_0,
+    oi0.inventory_before_oos AS inventory_before_oos_0,
+    CASE WHEN oi0.oos_timestamp IS NOT NULL THEN 1 ELSE 0 END AS supplier_oos_flag_0,
+
+    oi1.oos_timestamp AS oos_timestamp_1,
+    oi1.inventory_before_oos AS inventory_before_oos_1,
+    CASE WHEN oi1.oos_timestamp IS NOT NULL THEN 1 ELSE 0 END AS supplier_oos_flag_1,
+
+    oi2.oos_timestamp AS oos_timestamp_2,
+    oi2.inventory_before_oos AS inventory_before_oos_2,
+    CASE WHEN oi2.oos_timestamp IS NOT NULL THEN 1 ELSE 0 END AS supplier_oos_flag_2,
+
+    oi3.oos_timestamp AS oos_timestamp_3,
+    oi3.inventory_before_oos AS inventory_before_oos_3,
+    CASE WHEN oi3.oos_timestamp IS NOT NULL THEN 1 ELSE 0 END AS supplier_oos_flag_3,
+
+    oi4.oos_timestamp AS oos_timestamp_4,
+    oi4.inventory_before_oos AS inventory_before_oos_4,
+    CASE WHEN oi4.oos_timestamp IS NOT NULL THEN 1 ELSE 0 END AS supplier_oos_flag_4,
+
+    oi5.oos_timestamp AS oos_timestamp_5,
+    oi5.inventory_before_oos AS inventory_before_oos_5,
+    CASE WHEN oi5.oos_timestamp IS NOT NULL THEN 1 ELSE 0 END AS supplier_oos_flag_5,
+
+    oi6.oos_timestamp AS oos_timestamp_6,
+    oi6.inventory_before_oos AS inventory_before_oos_6,
+    CASE WHEN oi6.oos_timestamp IS NOT NULL THEN 1 ELSE 0 END AS supplier_oos_flag_6,
+
+    oi7.oos_timestamp AS oos_timestamp_7,
+    oi7.inventory_before_oos AS inventory_before_oos_7,
+    CASE WHEN oi7.oos_timestamp IS NOT NULL THEN 1 ELSE 0 END AS supplier_oos_flag_7,
+
+    -- Orders received
+    od.orders_received_0,
+    od.orders_received_1,
+    od.orders_received_2,
+    od.orders_received_3,
+    od.orders_received_4,
+    od.orders_received_5,
+    od.orders_received_6,
+    od.orders_received_7,
+    od.orders_last_30d
+
+  FROM product_universe pu
+  LEFT JOIN oos_info_0 oi0 ON pu.supplier_id = oi0.supplier_id AND pu.product_id = oi0.product_id AND pu.event_id = oi0.event_id
+  LEFT JOIN oos_info_1 oi1 ON pu.supplier_id = oi1.supplier_id AND pu.product_id = oi1.product_id AND pu.event_id = oi1.event_id
+  LEFT JOIN oos_info_2 oi2 ON pu.supplier_id = oi2.supplier_id AND pu.product_id = oi2.product_id AND pu.event_id = oi2.event_id
+  LEFT JOIN oos_info_3 oi3 ON pu.supplier_id = oi3.supplier_id AND pu.product_id = oi3.product_id AND pu.event_id = oi3.event_id
+  LEFT JOIN oos_info_4 oi4 ON pu.supplier_id = oi4.supplier_id AND pu.product_id = oi4.product_id AND pu.event_id = oi4.event_id
+  LEFT JOIN oos_info_5 oi5 ON pu.supplier_id = oi5.supplier_id AND pu.product_id = oi5.product_id AND pu.event_id = oi5.event_id
+  LEFT JOIN oos_info_6 oi6 ON pu.supplier_id = oi6.supplier_id AND pu.product_id = oi6.product_id AND pu.event_id = oi6.event_id
+  LEFT JOIN oos_info_7 oi7 ON pu.supplier_id = oi7.supplier_id AND pu.product_id = oi7.product_id AND pu.event_id = oi7.event_id
+
+  LEFT JOIN orders_30d_before_event od 
+    ON pu.supplier_id = od.supplier_id 
+    AND pu.product_id = od.product_id 
+    AND pu.event_id = od.event_id
+)
+,
+visits AS (
+  SELECT
+    supplier_id,
+    review_program_event_id AS event_id,
+    source,
+    review_id,
+    current_url,
+    current_page,
+    total_pages,
+    review_lifecycle,
+    TO_TIMESTAMP(FROM_UNIXTIME(event_time / 1000)) AS visit_ts,
+    UPPER(TRIM(SPLIT(SPLIT(current_url, 'tab=')[1], '&')[0])) AS tab,
+    CAST(REGEXP_EXTRACT(current_url, 'page=([0-9]+)', 1) AS INT) AS extracted_page
+  FROM silver.supplier_Web__program_review_page_viewed
+  WHERE year >= '2025' and review_program_event_id in (271,281,258,265,249,239)
+),
+
+review_window AS (
+  SELECT
+    supplier_id,
+    event_id,
+    CASE
+      WHEN SUM(CASE WHEN tab = 'OPEN' AND total_pages > 0 THEN 1 ELSE 0 END) > 0 THEN 'open'
+      ELSE 'closed'
+    END AS window_status
+  FROM visits
+  GROUP BY supplier_id, event_id
+),
+
+page_depth AS (
+  SELECT
+    supplier_id,
+    event_id,
+    COUNT(DISTINCT extracted_page) AS total_distinct_pages_visited,
+    MAX(total_pages) AS total_pages_available,
+    ROUND(
+      COUNT(DISTINCT extracted_page) * 1.0 / NULLIF(MAX(total_pages), 0),
+      3
+    ) AS page_depth_explored
+  FROM visits
+  GROUP BY supplier_id, event_id
+),
+
+action AS (
+  SELECT
+    TO_DATE(CONCAT_WS('-', year, LPAD(month, 2, '0'), LPAD(day, 2, '0'))) AS dt,
+    review_program_event_id AS event_id,
+    supplier_id,
+    review_lifecycle AS review_window_state,
+    CASE WHEN t.opt_out = true THEN 'opt_out' ELSE 'edit' END AS action_type,
+    COUNT(DISTINCT variation_id) AS actioned_variation_count,
+    COUNT(DISTINCT product_id) AS actioned_product_count
+  FROM (
+    SELECT *,
+      CAST(get_json_object(updated_data, '$[0].opt_out') AS BOOLEAN) AS opt_out
+    FROM silver.supplier_Web__program_review_product_edit_flow_updated
+    WHERE year >= '2025'
+      AND month >= '04'
+      AND event_name = 'program_review_product_edit_flow_updated'
+  ) t
+  GROUP BY 1, 2, 3, 4, 5
+),
+
+product_action_details AS (
+  SELECT
+    supplier_id,
+    review_program_event_id AS event_id,
+    CASE WHEN CAST(get_json_object(updated_data, '$[0].opt_out') AS BOOLEAN) THEN 'opt_out' ELSE 'edit' END AS action_type,
+    product_id
+  FROM silver.supplier_Web__program_review_product_edit_flow_updated
+  WHERE year >= '2025'
+    AND month >= '04'
+    AND event_name = 'program_review_product_edit_flow_updated'
+),
+
+product_action_oc AS (
+  SELECT
+    pad.supplier_id,
+    pad.event_id,
+    pad.action_type,
+    COUNT(DISTINCT pad.product_id) AS product_count
+  FROM product_action_details pad
+  GROUP BY pad.supplier_id, pad.event_id, pad.action_type
+),
+
+product_action_metrics AS (
+  SELECT
+    supplier_id,
+    event_id,
+    SUM(CASE WHEN action_type = 'edit' THEN product_count ELSE 0 END) AS products_edited_count,
+    SUM(CASE WHEN action_type = 'opt_out' THEN product_count ELSE 0 END) AS products_opted_out_count
+  FROM product_action_oc
+  GROUP BY supplier_id, event_id
+),
+
+action_summary AS (
+  SELECT
+    supplier_id,
+    event_id,
+    MAX(CASE WHEN action_type = 'edit' THEN 1 ELSE 0 END) AS seller_edited,
+    MAX(CASE WHEN action_type = 'opt_out' THEN 1 ELSE 0 END) AS seller_opted_out,
+    1 AS seller_took_action
+  FROM action
+  GROUP BY supplier_id, event_id
+),
+
+approved AS (
+  SELECT DISTINCT
+    supplier_id,
+    event_id,
+    CAST(approval_time AS DATE) AS approved_date
+  FROM silver.supplier_consent_management__supplier_event_approval
+  WHERE approved_by = 'SUPPLIER'
+    AND year >= '2025'
+),
+
+approval_summary AS (
+  SELECT
+    supplier_id,
+    event_id,
+    1 AS seller_approved
+  FROM approved
+),
+
+panel_visit_flags AS (
+  SELECT
+    rw.supplier_id,
+    rw.event_id,
+    rw.window_status,
+    COALESCE(a.seller_took_action, 0) AS seller_took_action,
+    COALESCE(a.seller_edited, 0) AS seller_edited,
+    COALESCE(a.seller_opted_out, 0) AS seller_opted_out,
+    COALESCE(ap.seller_approved, 0) AS seller_approved,
+    COALESCE(pd.total_distinct_pages_visited, 0) AS total_distinct_pages_visited,
+    COALESCE(pd.total_pages_available, 0) AS total_pages_available,
+    COALESCE(pd.page_depth_explored, 0) AS page_depth_explored,
+    COALESCE(pam.products_edited_count, 0) AS products_edited_count,
+    COALESCE(pam.products_opted_out_count, 0) AS products_opted_out_count
+  FROM review_window rw
+  LEFT JOIN action_summary a ON rw.supplier_id = a.supplier_id AND rw.event_id = a.event_id
+  LEFT JOIN approval_summary ap ON rw.supplier_id = ap.supplier_id AND rw.event_id = ap.event_id
+  LEFT JOIN page_depth pd ON rw.supplier_id = pd.supplier_id AND rw.event_id = pd.event_id
+  LEFT JOIN product_action_metrics pam ON rw.supplier_id = pam.supplier_id AND rw.event_id = pam.event_id
+)
+,
+panel_live_flag AS (
+  SELECT DISTINCT
+    supplier_id,
+    event_id,
+    1 AS panel_was_live
+  FROM silver.supplier_consent_management__supplier_event_review_details
+  WHERE year = '2025'
+)
+SELECT
+distinct 
+    dm.*,
+    COALESCE(pvf.window_status, 'review panel not visited') AS panel_window_status,
+    COALESCE(pvf.seller_took_action, 0) AS seller_took_action,
+    COALESCE(pvf.seller_edited, 0) AS seller_edited,
+    COALESCE(pvf.seller_opted_out, 0) AS seller_opted_out,
+    COALESCE(pvf.seller_approved, 0) AS seller_approved,
+    COALESCE(pvf.total_distinct_pages_visited, 0) AS total_distinct_pages_visited,
+    COALESCE(pvf.total_pages_available, 0) AS total_pages_available,
+    COALESCE(pvf.page_depth_explored, 0) AS page_depth_explored,
+    COALESCE(pvf.products_edited_count, 0) AS products_edited_count,
+    COALESCE(pvf.products_opted_out_count, 0) AS products_opted_out_count,
+    COALESCE(plf.panel_was_live, 0) AS panel_was_live
+FROM detailed_metrics dm
+LEFT JOIN panel_visit_flags pvf
+  ON dm.supplier_id = pvf.supplier_id
+  AND dm.event_id = pvf.event_id
+LEFT JOIN panel_live_flag plf
+  ON dm.supplier_id = plf.supplier_id
+  AND dm.event_id = plf.event_id
